@@ -1,0 +1,26 @@
+# Local project specifications and submission materials
+/docs/
+/prompts/
+/templates/
+/submission/
+/README_START_HERE.md
+/AGENTS.md
+
+# Local environments, caches, data and generated study artifacts
+/.venv*/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+/.pytest_cache/
+/pytest-cache-files-*/
+/.ruff_cache/
+/.coverage
+/htmlcov/
+/build/
+/dist/
+/data/
+/artifacts/
+/examples/generated/
+/.env
+/.env.*
+!/.env.example

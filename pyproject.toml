@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=75,<83", "wheel>=0.44,<1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "domain-shift-workbench"
+version = "0.1.0"
+description = "Reproducible classical domain-adaptation research workbench"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy>=2,<3",
+  "scipy>=1.14,<2",
+  "pandas>=2.2,<3",
+  "scikit-learn>=1.5,<2",
+  "PyYAML>=6,<7",
+  "pydantic>=2.10,<3",
+  "joblib>=1.4,<2",
+  "matplotlib>=3.9,<4",
+  "seaborn>=0.13,<0.14",
+  "streamlit>=1.40,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "ruff>=0.9,<1", "setuptools>=75,<83", "wheel>=0.44,<1"]
+
+[project.scripts]
+shiftlab = "shiftlab.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+shiftlab = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["error::sklearn.exceptions.ConvergenceWarning"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]

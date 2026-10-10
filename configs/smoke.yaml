@@ -1,0 +1,108 @@
+# Development fit-only check. Never substitute this for the full study.
+schema_version: 1
+protocol_version: '1.0'
+study_name: development_smoke
+mode: smoke
+split_seed: 2026
+seeds:
+- 17
+datasets:
+- gas
+task_filter:
+- gas_b01_b02
+models:
+- lr
+methods:
+- source_only
+include_majority_baseline: false
+data:
+  gas_uci_id: 224
+  har_uci_id: 240
+  gas_source_batch: 1
+  gas_target_batches:
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  - 8
+  - 9
+  - 10
+  gas_target_adaptation_fraction: 0.5
+  har_target_adaptation_participants: 4
+  amazon_domains:
+  - books
+  - dvd
+  - electronics
+  - kitchen
+  amazon_all_ordered_pairs: true
+preprocessing:
+  numeric_scaler: standard
+  text_max_features: 20000
+  text_min_df: 2
+  text_ngram_range:
+  - 1
+  - 2
+  text_sublinear_tf: true
+  text_svd_components: 128
+  text_scaler_after_svd: standard
+  fit_scope: source_only
+tuning:
+  folds: 5
+  metric: macro_f1
+  lr_C:
+  - 0.1
+  - 1.0
+  - 10.0
+  linear_svm_C:
+  - 0.1
+  - 1.0
+  - 10.0
+  rf_n_estimators: 200
+  rf_max_depth:
+  - null
+  - 20
+  rf_min_samples_leaf:
+  - 1
+  - 3
+  reuse_source_parameters_across_methods: true
+importance_weighting:
+  source_crossfit_folds: 5
+  domain_C: 1.0
+  probability_epsilon: 0.001
+  weight_clip_lower: 0.05
+  weight_clip_upper: 10.0
+  normalise_mean_one: true
+coral:
+  ridge: 0.001
+  eigenvalue_floor: 1.0e-08
+  centre_and_restore_target_mean: true
+evaluation:
+  primary_metric: macro_f1
+  supporting_metrics:
+  - accuracy
+  - macro_precision
+  - macro_recall
+  macro_class_policy: present_in_full_target_test
+  zero_division: 0
+  bootstrap_replicates: 1000
+  bootstrap_seed: 2026
+  bootstrap_unit_policy: dataset_specific_groups
+  paired_seed_average: true
+ablations:
+  tasks: []
+  weight_clip_upper:
+  - 5.0
+  - 10.0
+  - 20.0
+  coral_ridge:
+  - 0.0001
+  - 0.001
+  - 0.01
+execution:
+  default_stage: fit_only
+  max_parallel_jobs: 1
+  threads_per_job: 1
+  resume: true
+  output_root: artifacts
