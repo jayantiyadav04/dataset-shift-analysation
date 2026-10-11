@@ -131,9 +131,9 @@ def build_parser() -> argparse.ArgumentParser:
         _data_arguments(child, config=False)
 
     for name in ("train-source", "run"):
-        child = commands.add_parser(name, help="Fitting engine (Phase 3 and later)")
+        child = commands.add_parser(name, help="Explicit source baseline fit-only job")
         _config_argument(child)
-        _planned(child, 3)
+        _data_arguments(child, config=False)
     study = commands.add_parser("study", help="Frozen study execution and evaluation (Phase 6)")
     study_commands = study.add_subparsers(dest="action", required=True)
     run = study_commands.add_parser("run")
@@ -171,6 +171,15 @@ def main(argv: list[str] | None = None) -> int:
             config = load_config(args.config)
             operation = freeze_splits if args.action == "freeze" else audit_splits
             result = operation(args.data_root, config)
+        elif args.command in {"train-source", "run"}:
+            from shiftlab.experiments.runner import train_baselines
+
+            config = load_config(args.config)
+            if args.command == "run" and set(config.methods) != {"source_only"}:
+                raise ValueError(
+                    "Adaptation fitting is not implemented yet; use train-source for baselines"
+                )
+            result = train_baselines(config, root=Path.cwd(), data_root=args.data_root)
         else:
             if hasattr(args, "config"):
                 load_config(args.config)
@@ -184,5 +193,8 @@ def main(argv: list[str] | None = None) -> int:
     except (ConfigError, OSError, RuntimeError, ImportError, ValueError) as error:
         print(f"shiftlab: {error}", file=sys.stderr)
         return 2
+    except KeyboardInterrupt:
+        print("shiftlab: cancelled; any started fit attempt has been preserved", file=sys.stderr)
+        return 130
     print(json.dumps(result, indent=2, ensure_ascii=False, allow_nan=False))
     return 0

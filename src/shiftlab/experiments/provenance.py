@@ -1,4 +1,4 @@
-"""Content identities and run states; no storage or model loading in Phase 1."""
+"""Complete content identities, observed source revisions and run states."""
 
 import hashlib
 import json
@@ -63,7 +63,7 @@ class RunKey:
     dataset_hash: str
     task_id: str
     split_hash: str
-    model: ModelName
+    model: ModelName | str
     selected_source_parameter_hash: str
     preprocessing_hash: str
     method: MethodName
@@ -73,9 +73,12 @@ class RunKey:
     code_version: str
     dependency_lock_hash: str
     config_hash: str
+    code_snapshot_hash: str | None = None
 
     def __post_init__(self) -> None:
         for name, value in asdict(self).items():
+            if name == "code_snapshot_hash" and value is None:
+                continue
             if name.endswith("_hash") and (
                 not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
             ):
@@ -86,7 +89,8 @@ class RunKey:
             raise ValueError("A task ID and versioned protocol are required")
         if type(self.seed) is not int or not 0 <= self.seed < 2**32:
             raise ValueError("seed must be an unsigned 32-bit integer")
-        object.__setattr__(self, "model", ModelName(self.model))
+        if self.model != "majority":
+            object.__setattr__(self, "model", ModelName(self.model))
         object.__setattr__(self, "method", MethodName(self.method))
 
     @property
@@ -123,3 +127,10 @@ def source_revision(root: Path) -> SourceRevision:
         return SourceRevision(None, None)
     revision = commit.stdout.strip() if commit.returncode == 0 else None
     return SourceRevision(revision, bool(status.stdout.strip()) if status.returncode == 0 else None)
+
+
+def code_snapshot(root: Path) -> dict[str, str]:
+    """Include actual engine bytes even when development is not committed yet."""
+    paths = sorted((root / "src" / "shiftlab").rglob("*.py"))
+    paths += [root / "pyproject.toml"]
+    return {path.relative_to(root).as_posix(): file_sha256(path) for path in paths}

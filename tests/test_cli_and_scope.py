@@ -35,8 +35,6 @@ def test_cli_validates_without_running_a_study(capsys):
 @pytest.mark.parametrize(
     "arguments",
     [
-        ["train-source", "--config", "configs/study.yaml"],
-        ["run", "--config", "configs/smoke.yaml"],
         ["study", "run", "--config", "configs/study.yaml", "--resume"],
         ["study", "evaluate", "--study-id", "no-study"],
         ["study", "summarize", "--study-id", "no-study"],
@@ -64,6 +62,19 @@ def test_scientific_engine_imports_without_interface():
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_fitting_rejects_missing_prerequisites_without_outputs(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert main(["run", "--config", str(ROOT / "configs/smoke.yaml")]) == 2
+    assert "shiftlab:" in capsys.readouterr().err
+    assert not list(tmp_path.iterdir())
+
+
+def test_unimplemented_adaptation_job_is_rejected_before_any_write(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["run", "--config", str(ROOT / "configs/study.yaml")]) == 2
+    assert not list(tmp_path.iterdir())
 
 
 def test_actual_estimator_apis_accept_weights():

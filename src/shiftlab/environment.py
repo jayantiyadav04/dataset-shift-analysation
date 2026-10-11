@@ -40,6 +40,36 @@ PACKAGES = (
 )
 
 
+def physical_memory_bytes() -> int | None:
+    """Read installed RAM without adding a dependency or exposing device identifiers."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class MemoryStatus(ctypes.Structure):
+                _fields_ = [("length", ctypes.c_ulong), ("load", ctypes.c_ulong)] + [
+                    (name, ctypes.c_ulonglong)
+                    for name in (
+                        "total_physical",
+                        "available_physical",
+                        "total_page",
+                        "available_page",
+                        "total_virtual",
+                        "available_virtual",
+                        "extended_virtual",
+                    )
+                ]
+
+            status = MemoryStatus()
+            status.length = ctypes.sizeof(status)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+                return int(status.total_physical)
+            return None
+        return int(os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES"))
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
 def compatibility_check() -> dict[str, bool]:
     """Check fit/predict with sample_weight. Do not calculate research scores."""
     for name in ("numpy", "scipy", "pandas", "yaml", "pydantic", "joblib", "matplotlib", "seaborn"):
@@ -64,6 +94,7 @@ def compatibility_check() -> dict[str, bool]:
 
 def environment_report(root: Path) -> dict[str, Any]:
     lock = root / "requirements-lock.txt"
+    memory = physical_memory_bytes()
     return {
         "evidence_kind": "offline_synthetic_compatibility",
         "python": platform.python_version(),
@@ -72,6 +103,10 @@ def environment_report(root: Path) -> dict[str, Any]:
         "architecture": platform.machine(),
         "processor": platform.processor() or None,
         "logical_cpus": os.cpu_count(),
+        "physical_memory_bytes": memory,
+        "physical_memory_note": "Installed physical RAM"
+        if memory is not None
+        else "OS API unavailable",
         "packages": {name: version(name) for name in PACKAGES},
         "dependency_lock_sha256": file_sha256(lock) if lock.is_file() else None,
         "source_revision": asdict(source_revision(root)),

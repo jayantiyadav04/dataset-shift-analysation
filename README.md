@@ -2,9 +2,9 @@
 
 A local research project evaluating classical classifiers under distribution shift.
 The package includes validated configuration, official data acquisition and parsing,
-immutable split manifests and source-only numerical/text preprocessing. Training,
-adaptation, evaluation and the six-page dashboard are later phases. No study results
-exist yet.
+immutable split manifests, source-only numerical/text preprocessing and classical
+baseline fitting with fold-safe source selection. Adaptation, full-study evaluation
+and the six-page dashboard remain to be implemented. No target study results exist yet.
 
 ## Frozen objective
 
@@ -31,8 +31,9 @@ py -3.12 -m venv .venv
 ```
 
 The package works independently of Streamlit. Configuration, environment, data
-and split commands are implemented. Training, study and export commands return
-a nonzero exit code and explain the implementing phase.
+and split commands are implemented. `train-source` fits source baselines; `run`
+currently accepts source-only configurations. Study and export commands return
+a nonzero exit code until their implementation is complete.
 
 ## Prepare the declared datasets
 
@@ -92,6 +93,41 @@ Raw datasets remain local. The gas page has both current CC BY 4.0 and older
 research-only wording; the [author's Amazon page](https://www.cs.jhu.edu/~mdredze/datasets/sentiment/index2.html)
 does not give an explicit redistribution licence. Dataset cards preserve the
 source terms; acquisition instructions are supplied instead of raw archives.
+
+## Fit source baselines
+
+```powershell
+.\.venv\Scripts\shiftlab.exe train-source --config configs/baselines.yaml
+.\.venv\Scripts\shiftlab.exe run --config configs/smoke.yaml
+```
+
+`baselines.yaml` is a development check: two gas transfers, the HAR transfer,
+books to electronics, all three classifiers and a majority baseline, seed 17.
+It is separate from the primary five-seed study. `train-source` can also prepare
+baselines from `study.yaml`; it executes only source-only families.
+
+Each source domain/seed uses five source-only CV folds and the fixed parameter
+grid. Exact mean macro-F1 ties prefer lower C, depth 20 before unlimited depth,
+then leaf size 3 before 1. Target changes cannot affect source selection.
+
+Artifacts in `artifacts/runs/<run_id>/` contain configuration, environment,
+source CV reference, preprocessing/model files, diagnostics, timings and a sealed
+checksum manifest. Shared CV and preprocessing live in `artifacts/source_cache/`.
+Resume verifies the complete identity and checksums and preserves original timings.
+Fit-only records have status `fitted`; predictions and target metrics are absent.
+Lightweight source-validation evidence is in `reports/source_baselines/`.
+
+Failed attempts stay in `artifacts/failures/`; Ctrl+C records cancellation.
+An exclusive lock prevents concurrent writers. After a hard process termination,
+inspect the lock and pending record before manual recovery; the engine refuses
+to guess that a writer is dead. It never silently overwrites an earlier attempt.
+
+The evaluator requires a sealed study lock with completed fit IDs and exact
+configuration, code, dependency and split hashes before reading target data.
+It has been tested on synthetic fixtures only; final target evaluation remains
+closed. Evaluation artifacts are separate immutable records referring to fitted
+run IDs. Only locally generated, receipt-backed, checksum-verified joblib files
+may be loaded. Do not import models or trust receipts from outside sources.
 
 ## Study boundaries
 

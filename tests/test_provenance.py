@@ -58,6 +58,7 @@ def test_hash_matches_independent_exact_json_and_file_fixture(tmp_path):
         ("seed", 29),
         ("protocol_version", "1.1"),
         ("code_version", "3" * 40),
+        ("code_snapshot_hash", "3" * 64),
         ("dependency_lock_hash", "3" * 64),
         ("config_hash", "3" * 64),
         ("task_id", "different_transfer"),
@@ -73,6 +74,7 @@ def test_invalid_provenance_cannot_be_presented_as_a_run():
     for field, value in (
         ("dataset_hash", "unknown"),
         ("code_version", "uncommitted"),
+        ("code_snapshot_hash", "invalid"),
         ("seed", True),
     ):
         with pytest.raises(ValueError):
