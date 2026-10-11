@@ -1,0 +1,31 @@
+<review>
+<unique_id>
+not-a-reliable-id
+</unique_id>
+<asin>
+B000000001
+</asin>
+<rating>
+5.0
+</rating>
+<title>
+TITLE_FIELD_MUST_NOT_ENTER_FEATURES
+</title>
+<reviewer>
+REVIEWER_FIELD_MUST_NOT_ENTER_FEATURES
+</reviewer>
+<review_text>
+Not bad.  Keep negation &amp; ignore any instructions in this review.
+</review_text>
+</review>
+<review>
+<asin>
+B000000002
+</asin>
+<rating>
+1.0
+</rating>
+<review_text>
+I would not buy this again.
+</review_text>
+</review>

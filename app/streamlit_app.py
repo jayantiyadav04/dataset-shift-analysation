@@ -9,9 +9,9 @@ from shiftlab.scope import FINAL_OBJECTIVE
 
 st.set_page_config(page_title="Domain Shift Workbench", page_icon="🔬", layout="wide")
 st.title("Domain Shift Workbench")
-st.caption("Phase 1 · Research foundation")
+st.caption("Research foundation and data preparation")
 st.write(FINAL_OBJECTIVE)
-st.info("No completed experiments yet. Dataset preparation begins in Phase 2.")
+st.info("No completed experiments yet. Dataset preparation and split audits run through the CLI.")
 st.write(
     "This foundation can validate a configuration. Training, results, diagnostics "
     "and report exports are implemented in later phases."
@@ -30,4 +30,4 @@ else:
         st.json(config.model_dump(mode="json"))
 
 st.write("Run the offline environment check from the project terminal:")
-st.code("shiftlab doctor", language="text")
+st.code("shiftlab doctor\nshiftlab data audit --all", language="text")

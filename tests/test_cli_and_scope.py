@@ -35,10 +35,6 @@ def test_cli_validates_without_running_a_study(capsys):
 @pytest.mark.parametrize(
     "arguments",
     [
-        ["data", "fetch", "--dataset", "gas"],
-        ["data", "prepare", "--dataset", "har"],
-        ["data", "audit", "--all"],
-        ["splits", "freeze", "--config", "configs/study.yaml"],
         ["train-source", "--config", "configs/study.yaml"],
         ["run", "--config", "configs/smoke.yaml"],
         ["study", "run", "--config", "configs/study.yaml", "--resume"],

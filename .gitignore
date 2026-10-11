@@ -5,6 +5,7 @@
 /submission/
 /README_START_HERE.md
 /AGENTS.md
+/MANIFEST.sha256
 
 # Local environments, caches, data and generated study artifacts
 /.venv*/

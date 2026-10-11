@@ -1,9 +1,10 @@
 # Domain Shift Workbench
 
 A local research project evaluating classical classifiers under distribution shift.
-Phase 1 builds the package, configuration contract and development checks. Real
-data preparation, training, adaptation, evaluation and the six-page dashboard are
-later phases. No study results exist yet.
+The package includes validated configuration, official data acquisition and parsing,
+immutable split manifests and source-only numerical/text preprocessing. Training,
+adaptation, evaluation and the six-page dashboard are later phases. No study results
+exist yet.
 
 ## Frozen objective
 
@@ -29,9 +30,68 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m streamlit run app/streamlit_app.py --server.address 127.0.0.1
 ```
 
-The package works independently of Streamlit. `config validate` and `doctor` are
-implemented; planned data, training, study and export commands return a nonzero
-exit code and explain the implementing phase. They do not create study artifacts.
+The package works independently of Streamlit. Configuration, environment, data
+and split commands are implemented. Training, study and export commands return
+a nonzero exit code and explain the implementing phase.
+
+## Prepare the declared datasets
+
+Run from the repository root. The configuration is validated before acquisition
+or preparation. All data stay in the ignored local `data/` directory.
+
+```powershell
+.\.venv\Scripts\shiftlab.exe data fetch --dataset gas
+.\.venv\Scripts\shiftlab.exe data fetch --dataset har
+.\.venv\Scripts\shiftlab.exe data fetch --dataset amazon
+.\.venv\Scripts\shiftlab.exe data prepare --dataset gas
+.\.venv\Scripts\shiftlab.exe data prepare --dataset har
+.\.venv\Scripts\shiftlab.exe data prepare --dataset amazon
+.\.venv\Scripts\shiftlab.exe data audit --all
+.\.venv\Scripts\shiftlab.exe splits freeze --config configs/study.yaml
+.\.venv\Scripts\shiftlab.exe splits audit --config configs/study.yaml
+.\.venv\Scripts\python.exe tools/verify_phase02.py --out docs/phase_02_verification.json
+```
+
+The verification command refuses to replace an existing evidence file; choose a
+new output filename for a justified rerun. It audits all splits and tests real
+source preprocessing with training access to evaluation files forbidden.
+
+If a host is unavailable, download its official archive and import it with
+`data fetch --dataset gas --archive path/to/archive.zip`. For Amazon supply both
+`--archive path/to/domain_sentiment_data.tar.gz` and
+`--books-unlabeled path/to/book.unlabeled.gz`. Use `--data-root` consistently to
+prepare a separate archive version; existing archives and frozen splits cannot be
+overwritten. Partial operations leave staging directories and do not appear complete.
+
+Official acquisition sources:
+
+- [UCI Gas Sensor Array Drift, dataset 224](https://archive.ics.uci.edu/dataset/224/gas+sensor+array+drift+dataset)
+- [UCI HAR Using Smartphones, dataset 240](https://archive.ics.uci.edu/dataset/240/human+activity+recognition+using+smartphones)
+- [Original four-domain Amazon sentiment corpus and separate books file](https://www.cs.jhu.edu/~mdredze/datasets/sentiment/index2.html)
+
+Each prepared dataset has `manifest.json`, `DATA_CARD.md`, explicit metadata and
+`exclusions.jsonl` in `data/processed/<dataset>/`. Archives and extracted files have
+actual SHA-256 hashes. Review features contain bodies only; ratings and reviewer
+metadata are excluded. Conflicting duplicates are quarantined. Duplicate bodies
+stay in the labelled pool before the unlabelled pool, and each transfer removes
+source duplicates from its target pools.
+
+The frozen role IDs and hashes are in `data/splits/1.0/<task>/manifest.json`.
+Training files contain source features/labels and target adaptation features;
+evaluation files are in a separate subdirectory. `load_training` opens only the
+permitted training files. This is an application boundary on a local filesystem,
+not an operating-system access-control system.
+
+Source CV keeps participants and duplicate bodies together and uses valid product
+groups when feasible. Each fold creates a new scaler or TF-IDF/SVD/scaler fit using
+that fold's source training rows. The text representation uses at most 128 dense
+components, capped below observed source rank; actual dimensions are recorded.
+All three future methods will share this representation.
+
+Raw datasets remain local. The gas page has both current CC BY 4.0 and older
+research-only wording; the [author's Amazon page](https://www.cs.jhu.edu/~mdredze/datasets/sentiment/index2.html)
+does not give an explicit redistribution licence. Dataset cards preserve the
+source terms; acquisition instructions are supplied instead of raw archives.
 
 ## Study boundaries
 
@@ -68,4 +128,4 @@ scikit-learn 1.9.1 and Streamlit 1.65.0. All other exact versions are in the loc
 The checks run offline after installation. The supplied pack validator checks
 only project Markdown, so it ignores installed third-party documentation.
 
-No repository push or public deployment is part of Phase 1.
+Pushes and public deployment require a separate user instruction.
