@@ -3,8 +3,9 @@
 A local research project evaluating classical classifiers under distribution shift.
 The package includes validated configuration, official data acquisition and parsing,
 immutable split manifests, source-only numerical/text preprocessing and classical
-baseline fitting with fold-safe source selection. Adaptation, full-study evaluation
-and the six-page dashboard remain to be implemented. No target study results exist yet.
+baseline fitting with fold-safe source selection and domain-classifier importance
+weighting. CORAL, full-study evaluation and the six-page dashboard remain to be
+implemented. No target study results exist yet.
 
 ## Frozen objective
 
@@ -32,7 +33,7 @@ py -3.12 -m venv .venv
 
 The package works independently of Streamlit. Configuration, environment, data
 and split commands are implemented. `train-source` fits source baselines; `run`
-currently accepts source-only configurations. Study and export commands return
+accepts source-only and importance-weighting configurations. Study and export commands return
 a nonzero exit code until their implementation is complete.
 
 ## Prepare the declared datasets
@@ -87,7 +88,7 @@ Source CV keeps participants and duplicate bodies together and uses valid produc
 groups when feasible. Each fold creates a new scaler or TF-IDF/SVD/scaler fit using
 that fold's source training rows. The text representation uses at most 128 dense
 components, capped below observed source rank; actual dimensions are recorded.
-All three future methods will share this representation.
+All three primary methods use this declared representation.
 
 Raw datasets remain local. The gas page has both current CC BY 4.0 and older
 research-only wording; the [author's Amazon page](https://www.cs.jhu.edu/~mdredze/datasets/sentiment/index2.html)
@@ -128,6 +129,40 @@ It has been tested on synthetic fixtures only; final target evaluation remains
 closed. Evaluation artifacts are separate immutable records referring to fitted
 run IDs. Only locally generated, receipt-backed, checksum-verified joblib files
 may be loaded. Do not import models or trust receipts from outside sources.
+
+## Fit importance-weighted models
+
+```powershell
+.\.venv\Scripts\shiftlab.exe run --config configs/importance.yaml
+```
+
+This explicit development job fits matched source-only and importance-weighted
+LR, LinearSVC and RF plus one source-majority baseline on gas Batch 1 to Batch 10,
+HAR, and Amazon books to electronics, seed 17. It creates 21 fitted records;
+it does not run the five-seed study or open target evaluation data.
+
+The discriminator uses five source folds with intact participant/duplicate/product
+groups. Each fold fits domain labels (source=0, adaptation=1) on the other source
+rows and all adaptation features, using logistic regression C=1, no balancing,
+no resampling, max_iter=10000 and the recorded seed. It predicts held-out source
+probabilities in the shared full-source-fitted representation. For each source
+row the density ratio is probability odds times that fold's actual source count
+divided by the adaptation count. Bound probabilities to [0.001,0.999], clip raw
+ratios to [0.05,10], then normalize the complete source vector to mean one.
+The final normalized weights can exceed the raw clipping bounds.
+
+All three task classifiers receive exactly that same saved weight vector and
+reuse their source-selected parameters. `artifacts/importance_cache/` holds
+domain fold IDs, coefficients, probabilities, counts, raw/clipped/final weights,
+diagnostics and originating timings. Each weighted run contains
+`adaptation_state.npz` and an `importance_reference.json`. Adaptation timing
+includes transformation of the permitted target adaptation features and domain
+cross-fitting. Shared cache timings retain their original values.
+
+Effective sample size (ESS) measures concentration of the weights, not prediction
+quality. ESS below 10% of source count warns but retains the fit. No target task
+labels, pseudo-labels or target score tuning are used. Lightweight real fitting
+diagnostics are in `reports/importance_weighting/`; raw weights/models stay local.
 
 ## Study boundaries
 

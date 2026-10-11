@@ -131,7 +131,7 @@ def build_parser() -> argparse.ArgumentParser:
         _data_arguments(child, config=False)
 
     for name in ("train-source", "run"):
-        child = commands.add_parser(name, help="Explicit source baseline fit-only job")
+        child = commands.add_parser(name, help="Explicit fit-only job for implemented methods")
         _config_argument(child)
         _data_arguments(child, config=False)
     study = commands.add_parser("study", help="Frozen study execution and evaluation (Phase 6)")
@@ -172,14 +172,11 @@ def main(argv: list[str] | None = None) -> int:
             operation = freeze_splits if args.action == "freeze" else audit_splits
             result = operation(args.data_root, config)
         elif args.command in {"train-source", "run"}:
-            from shiftlab.experiments.runner import train_baselines
+            from shiftlab.experiments.runner import train_baselines, train_methods
 
             config = load_config(args.config)
-            if args.command == "run" and set(config.methods) != {"source_only"}:
-                raise ValueError(
-                    "Adaptation fitting is not implemented yet; use train-source for baselines"
-                )
-            result = train_baselines(config, root=Path.cwd(), data_root=args.data_root)
+            operation = train_baselines if args.command == "train-source" else train_methods
+            result = operation(config, root=Path.cwd(), data_root=args.data_root)
         else:
             if hasattr(args, "config"):
                 load_config(args.config)

@@ -39,9 +39,12 @@ class LocalArtifactStore:
         self.root = root.resolve()
 
     def directory(self, kind: str, identity: str) -> Path:
-        if kind not in {"runs", "source_cache", "evaluations"} or not re.fullmatch(
-            r"[0-9a-f]{64}", identity
-        ):
+        if kind not in {
+            "runs",
+            "source_cache",
+            "importance_cache",
+            "evaluations",
+        } or not re.fullmatch(r"[0-9a-f]{64}", identity):
             raise DataError("Unknown record namespace or invalid content identity")
         return safe_child(self.root, f"{kind}/{identity}")
 

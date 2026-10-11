@@ -1,8 +1,9 @@
-"""Explicit fit-only baseline jobs. No evaluator or target label access here."""
+"""Explicit fit-only jobs sharing source selection; no held-out reader here."""
 
 import shutil
 from collections.abc import Callable
 from dataclasses import asdict
+from functools import partial
 from importlib.metadata import version
 from pathlib import Path
 from time import perf_counter
@@ -25,6 +26,7 @@ from shiftlab.experiments.provenance import (
 )
 from shiftlab.experiments.selection import select_source
 from shiftlab.experiments.storage import LocalArtifactStore
+from shiftlab.experiments.weighting import prepare_importance
 from shiftlab.models.estimators import estimator_factory, fit_estimator
 
 
@@ -45,21 +47,156 @@ def runtime_identity(root: Path) -> dict[str, str]:
     }
 
 
-def train_baselines(
+def _save_fit(
+    stage: Path,
+    *,
+    store: LocalArtifactStore,
+    source: dict,
+    view: RawTrainingView,
+    split: dict,
+    model: str,
+    parameters: dict,
+    seed: int,
+    configuration: dict,
+    environment: dict,
+    study_id: str,
+    importance: dict | None,
+) -> dict[str, Any]:
+    source_id = source["identity"]
+    source_directory = store.directory("source_cache", source_id)
+    X_source = np.load(source_directory / "source_features.npy", allow_pickle=False)
+    weights, weight_diagnostics = None, None
+    adaptation_seconds = 0.0
+    if importance is not None:
+        directory = store.directory("importance_cache", importance["identity"])
+        with np.load(directory / "adaptation_state.npz", allow_pickle=False) as arrays:
+            if (
+                tuple(arrays["source_ids"].tolist()) != view.source.ids
+                or tuple(arrays["target_adapt_ids"].tolist()) != view.target_adapt.ids
+            ):
+                raise DataError("Cached importance weights differ from ordered training IDs")
+            weights = arrays["weights"]
+        if (
+            weights.shape != (len(view.source.ids),)
+            or not np.isfinite(weights).all()
+            or np.any(weights <= 0)
+            or not np.isclose(weights.mean(), 1.0, atol=1e-12, rtol=0)
+        ):
+            raise DataError("Cached importance weights violate their source contract")
+        weight_diagnostics = read_json(directory / "diagnostics.json")
+        adaptation_seconds = importance["adaptation_fit_seconds"]
+        shutil.copyfile(directory / "adaptation_state.npz", stage / "adaptation_state.npz")
+        write_json(
+            stage / "importance_reference.json",
+            {
+                "identity": importance["identity"],
+                "manifest_hash": importance["manifest_hash"],
+                "preprocessing_hash": importance["preprocessing_hash"],
+                "shared_across_models": True,
+            },
+        )
+    estimator = estimator_factory(model, parameters, seed)
+    started = perf_counter()
+    messages = fit_estimator(estimator, X_source, view.y_source, sample_weight=weights)
+    classifier_seconds = perf_counter() - started
+    if importance is not None:
+        messages = importance["warnings"] + messages
+    joblib.dump(estimator, stage / "fitted_model.joblib")
+    shutil.copyfile(source_directory / "preprocessing.joblib", stage / "preprocessing.joblib")
+    timings = {
+        "preprocessing_fit_seconds": source["preprocessing_fit_seconds"],
+        "source_transform_seconds": source["source_transform_seconds"],
+        "adaptation_fit_seconds": adaptation_seconds,
+        "classifier_fit_seconds": classifier_seconds,
+        "target_prediction_seconds": None,
+        "pipeline_fit_seconds": source["preprocessing_fit_seconds"]
+        + source["source_transform_seconds"]
+        + adaptation_seconds
+        + classifier_seconds,
+        "pipeline_fit_predict_seconds": None,
+        "shared_source_search_seconds": source["source_search_seconds"],
+        "definition": (
+            "fit = preprocessing fit + source transform + adaptation fit + classifier fit; "
+            "adaptation includes target adaptation transform; prediction includes target "
+            "evaluation transform; source search excluded"
+        ),
+        "source_cache_id": source_id,
+        "cached_component_timings": "Original computation duration retained",
+    }
+    if importance is not None:
+        timings.update(
+            {
+                "importance_cache_id": importance["identity"],
+                "target_adapt_transform_seconds": importance["target_adapt_transform_seconds"],
+                "domain_classifier_and_weights_fit_seconds": importance[
+                    "domain_classifier_and_weights_fit_seconds"
+                ],
+            }
+        )
+    write_json(stage / "config.json", configuration)
+    write_json(stage / "environment.json", environment)
+    write_json(
+        stage / "source_cv_reference.json",
+        {
+            "identity": source_id,
+            "manifest_hash": source["manifest_hash"],
+            "selected_parameters": parameters,
+            "preprocessing_hash": source["preprocessing_hash"],
+            "source_search_shared": True,
+            "majority_tuned": False,
+        },
+    )
+    write_json(stage / "timings.json", timings)
+    write_json(
+        stage / "diagnostics.json",
+        {
+            "source_classes": np.unique(view.y_source).tolist(),
+            "source_count": len(view.y_source),
+            "feature_dimension": X_source.shape[1],
+            "preprocessing_fit_ids": view.source.ids,
+            "target_evaluation_opened": False,
+            "estimator_parameters": estimator.get_params(),
+            "sample_weight_passed": weights is not None,
+            "sample_weight_hash": content_hash(weights.tolist()) if weights is not None else None,
+            "importance_weighting": weight_diagnostics,
+            "warnings": messages,
+        },
+    )
+    return {
+        "study_id": study_id,
+        "sample_counts": split["sample_counts"],
+        "class_mapping": CLASS_MAPS[view.source.dataset],
+        "selected_params": parameters,
+        "seed": seed,
+        "source_cv_id": source_id,
+        "environment": "environment.json",
+        "timing": timings,
+        "warnings": messages,
+        "evaluation_performed": False,
+    }
+
+
+def train_methods(
     config: StudyConfig,
     *,
     root: Path,
     data_root: Path,
     progress: Callable[[dict], None] | None = None,
+    baseline_only: bool = False,
 ) -> dict[str, Any]:
-    """Train declared source families; adaptation methods remain separately implemented."""
-    if "source_only" not in config.methods:
+    """Fit implemented methods; unsupported settings fail before creating artifacts."""
+    methods = ("source_only",) if baseline_only else config.methods
+    if baseline_only and "source_only" not in config.methods:
         raise DataError("Baseline training needs source_only in the declared configuration")
+    if set(methods) - {"source_only", "importance_weighting"}:
+        raise DataError("CORAL fitting is not implemented yet; use an implemented method config")
+    if "source_only" not in methods and config.include_majority_baseline:
+        raise DataError("Majority requires source_only in a method job configuration")
     identity = runtime_identity(root)
     environment = environment_report(root)
     environment.update(
         {
-            "evidence_kind": "real_source_fit_only",
+            "evidence_kind": "real_fit_only",
             "threads_per_job": 1,
             "code_snapshot": code_snapshot(root),
         }
@@ -79,135 +216,95 @@ def train_baselines(
             if progress:
                 progress({"event": "source_selection", "task": task, "seed": seed})
             source, cache_hit = select_source(store, view, config, seed, identity)
-            source_id = source["identity"]
-            source_directory = store.directory("source_cache", source_id)
-            # allow_pickle=False; no target features/labels are opened or transformed.
-            X_source = np.load(source_directory / "source_features.npy", allow_pickle=False)
-            families = list(config.models) + (
-                ["majority"] if config.include_majority_baseline else []
-            )
-            for model in families:
-                parameters = {} if model == "majority" else source["selected_parameters"][model]
-                key = RunKey(
-                    dataset_hash=split["dataset_hash"],
-                    task_id=task,
-                    split_hash=view.split_hash,
-                    model=model,
-                    selected_source_parameter_hash=content_hash(parameters),
-                    preprocessing_hash=source["preprocessing_hash"],
-                    method="source_only",
-                    adaptation_parameter_hash=content_hash({}),
-                    seed=seed,
-                    protocol_version=config.protocol_version,
-                    config_hash=config_hash,
-                    **identity,
-                )
-
-                def produce(
-                    stage: Path,
-                    *,
-                    model: str = model,
-                    parameters: dict = parameters,
-                    seed: int = seed,
-                    X_source: np.ndarray = X_source,
-                    view: RawTrainingView = view,
-                    source_directory: Path = source_directory,
-                    source: dict = source,
-                    source_id: str = source_id,
-                    split: dict = split,
-                ) -> dict[str, Any]:
-                    estimator = estimator_factory(model, parameters, seed)
-                    started = perf_counter()
-                    messages = fit_estimator(estimator, X_source, view.y_source)
-                    classifier_seconds = perf_counter() - started
-                    joblib.dump(estimator, stage / "fitted_model.joblib")
-                    shutil.copyfile(
-                        source_directory / "preprocessing.joblib", stage / "preprocessing.joblib"
-                    )
-                    timings = {
-                        "preprocessing_fit_seconds": source["preprocessing_fit_seconds"],
-                        "source_transform_seconds": source["source_transform_seconds"],
-                        "adaptation_fit_seconds": 0.0,
-                        "classifier_fit_seconds": classifier_seconds,
-                        "target_prediction_seconds": None,
-                        "pipeline_fit_seconds": source["preprocessing_fit_seconds"]
-                        + source["source_transform_seconds"]
-                        + classifier_seconds,
-                        "pipeline_fit_predict_seconds": None,
-                        "shared_source_search_seconds": source["source_search_seconds"],
-                        "definition": (
-                            "fit = preprocessing fit + source transform + adaptation fit + "
-                            "classifier fit; prediction includes target transform; search excluded"
+            for method in methods:
+                importance = None
+                if method == "importance_weighting":
+                    if progress:
+                        progress({"event": "importance_crossfit", "task": task, "seed": seed})
+                    importance, _ = prepare_importance(store, view, config, seed, source, identity)
+                families = list(config.models)
+                if method == "source_only" and config.include_majority_baseline:
+                    families.append("majority")
+                for model in families:
+                    parameters = {} if model == "majority" else source["selected_parameters"][model]
+                    key = RunKey(
+                        dataset_hash=split["dataset_hash"],
+                        task_id=task,
+                        split_hash=view.split_hash,
+                        model=model,
+                        selected_source_parameter_hash=content_hash(parameters),
+                        preprocessing_hash=source["preprocessing_hash"],
+                        method=method,
+                        adaptation_parameter_hash=content_hash(
+                            config.importance_weighting.model_dump(mode="json")
+                            if importance
+                            else {}
                         ),
-                        "source_cache_id": source_id,
-                        "cached_component_timings": "Original computation duration retained",
-                    }
-                    write_json(stage / "config.json", configuration)
-                    write_json(stage / "environment.json", environment)
-                    write_json(
-                        stage / "source_cv_reference.json",
-                        {
-                            "identity": source_id,
-                            "manifest_hash": source["manifest_hash"],
-                            "selected_parameters": parameters,
-                            "preprocessing_hash": source["preprocessing_hash"],
-                            "source_search_shared": True,
-                            "majority_tuned": False,
-                        },
+                        seed=seed,
+                        protocol_version=config.protocol_version,
+                        config_hash=config_hash,
+                        **identity,
                     )
-                    write_json(stage / "timings.json", timings)
-                    write_json(
-                        stage / "diagnostics.json",
-                        {
-                            "source_classes": np.unique(view.y_source).tolist(),
-                            "source_count": len(view.y_source),
-                            "feature_dimension": X_source.shape[1],
-                            "preprocessing_fit_ids": view.source.ids,
-                            "target_evaluation_opened": False,
-                            "estimator_parameters": estimator.get_params(),
-                            "warnings": messages,
-                        },
+                    produce = partial(
+                        _save_fit,
+                        store=store,
+                        source=source,
+                        view=view,
+                        split=split,
+                        model=model,
+                        parameters=parameters,
+                        seed=seed,
+                        configuration=configuration,
+                        environment=environment,
+                        study_id=study_id,
+                        importance=importance,
                     )
-                    return {
-                        "study_id": study_id,
-                        "sample_counts": split["sample_counts"],
-                        "class_mapping": CLASS_MAPS[view.source.dataset],
-                        "selected_params": parameters,
-                        "seed": seed,
-                        "source_cv_id": source_id,
-                        "environment": "environment.json",
-                        "timing": timings,
-                        "warnings": messages,
-                        "evaluation_performed": False,
-                    }
-
-                record, resumed = store.create(
-                    "runs", asdict(key), produce, resume=config.execution.resume
-                )
-                results.append(
-                    {
-                        "run_id": record["run_id"],
-                        "task_id": task,
-                        "model": str(model),
-                        "seed": seed,
-                        "status": record["status"],
-                        "resumed": resumed,
-                        "source_cache_reused": cache_hit,
-                        "source_cv_id": source_id,
-                    }
-                )
-                if progress:
-                    progress({"event": "baseline_saved", **results[-1]})
-    return {
-        "status": "baselines_fitted",
-        "study_id": study_id,
-        "expected_baseline_fits": len(config.selected_tasks())
+                    record, resumed = store.create(
+                        "runs", asdict(key), produce, resume=config.execution.resume
+                    )
+                    results.append(
+                        {
+                            "run_id": record["run_id"],
+                            "task_id": task,
+                            "model": str(model),
+                            "method": str(method),
+                            "seed": seed,
+                            "status": record["status"],
+                            "resumed": resumed,
+                            "source_cache_reused": cache_hit,
+                            "source_cv_id": source["identity"],
+                            "importance_cache_id": importance["identity"] if importance else None,
+                        }
+                    )
+                    if progress:
+                        progress({"event": "fit_saved", **results[-1]})
+    expected = (
+        len(config.selected_tasks())
         * len(config.seeds)
-        * (len(config.models) + int(config.include_majority_baseline)),
+        * (len(config.models) * len(methods) + int(config.include_majority_baseline))
+    )
+    return {
+        "status": "baselines_fitted" if baseline_only else "methods_fitted",
+        "study_id": study_id,
+        "expected_fits": expected,
+        "expected_baseline_fits": expected if baseline_only else None,
         "fitted_records": len(results),
-        "new_fits": sum(not row["resumed"] for row in results),
-        "resumed_fits": sum(row["resumed"] for row in results),
+        "new_fits": sum(not r["resumed"] for r in results),
+        "resumed_fits": sum(r["resumed"] for r in results),
         "evaluated_records": 0,
         "runs": results,
         "notice": "Fit-only development evidence. Final target data remain closed.",
     }
+
+
+def train_baselines(
+    config: StudyConfig,
+    *,
+    root: Path,
+    data_root: Path,
+    progress: Callable[[dict], None] | None = None,
+) -> dict[str, Any]:
+    """Preserve the baseline-only CLI without changing the declared config hash."""
+    return train_methods(
+        config, root=root, data_root=data_root, progress=progress, baseline_only=True
+    )

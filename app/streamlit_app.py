@@ -9,9 +9,11 @@ from shiftlab.scope import FINAL_OBJECTIVE
 
 st.set_page_config(page_title="Domain Shift Workbench", page_icon="🔬", layout="wide")
 st.title("Domain Shift Workbench")
-st.caption("Research foundation, data preparation and source baselines")
+st.caption("Research foundation, data preparation and importance weighting")
 st.write(FINAL_OBJECTIVE)
-st.info("No completed experiments yet. Source baseline fitting is available through the CLI.")
+st.info(
+    "No completed experiments yet. Source and importance-weighted fitting use explicit CLI jobs."
+)
 st.write(
     "This interface validates configurations. Run source fitting explicitly in the terminal. "
     "The research dashboard and report exports are implemented in later stages."
