@@ -11,3 +11,4 @@
 
 # Published evidence must retain exact sealed bytes, including CSV line endings.
 reports/study/** -text whitespace=cr-at-eol
+reports/workbench/** -text whitespace=cr-at-eol

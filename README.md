@@ -6,8 +6,8 @@ immutable split manifests, source-only numerical/text preprocessing and classica
 baseline fitting with fold-safe source selection and domain-classifier importance
 weighting and centred regularised CORAL alignment. The frozen study runner supports
 resource benchmarks, checkpoints, held-out evaluation and paired grouped analysis.
-The six-page dashboard remains to be implemented. Completed counts and findings
-require saved study evidence.
+The six-page dashboard displays verified completed evidence and launches explicit
+local workers. All shown counts and findings come from saved study evidence.
 
 ## Frozen objective
 
@@ -37,7 +37,49 @@ The package works independently of Streamlit. Configuration, environment, data
 and split commands are implemented. `train-source` fits source baselines; `run`
 accepts source-only, importance-weighting and CORAL configurations. Study commands
 benchmark, fit, evaluate, summarize, inspect progress and recover interrupted work.
-The separate dashboard export command returns a nonzero exit code until implemented.
+Use `tools/export_workbench.py` for headless report exports through the same saved-evidence
+reader as the dashboard. The frozen engine's earlier `shiftlab export` placeholder is
+preserved; the working export command below is independent of Streamlit.
+
+## Research dashboard
+
+Open the local app with the Streamlit command above. Overview, Datasets, Experiment
+Runner, Results, Diagnostics and Report Exports share the selected study, dataset,
+transfer, protocol and split hash. Missing or invalid artifacts are named explicitly;
+an empty storage view does not borrow another study's results. Inspect real interface
+evidence in [reports/workbench](reports/workbench/README.md).
+
+Results show saved five-seed means, sample SD, paired changes and conditional group
+intervals. The comparison detail supplies exact baseline/adapted run IDs, prediction
+paths/checksums and split identity. Diagnostics read saved mean-one weights, ESS,
+covariance diagnostics, class errors and predeclared sensitivity settings; no fitted
+estimator is deserialized by the interface. Large detailed tables scroll horizontally.
+
+The runner defaults to one development fit with no target evaluation. A persistent
+job ID and launch guard prevent duplicate workers across rerenders/sessions. Logs,
+failures and cancellations remain visible. Cancellation is limited to an owned
+process and interrupts at a Python operation boundary; a long numerical call may
+finish first. Closing the browser does not cancel a worker. A detached worker blocks
+new launches and requires its preserved log/CLI recovery. Full frozen execution or
+resume is an explicit 1,280-record control; inspection and exports never train.
+
+Build a report bundle explicitly on Report Exports. Changing filters invalidates a
+prepared bundle. CSV/JSON, figures, exact split IDs, methodology and prediction traces
+have a sealed input/output hash manifest. Raw features, review bodies and serialized
+models are excluded. Bundles stay local by default.
+
+```powershell
+.\.venv\Scripts\python.exe tools/export_workbench.py --study-id a05bea2f175b9d81091a413637276d174c378efaf31d1c539430e98055df77d0 --dataset gas --task gas_b01_b02 --models lr --out artifacts/exports/gas_lr.zip
+```
+
+Exports refuse to overwrite existing files. UI code lives in `app/`; fixed-request
+workers call the unchanged `src/shiftlab` engine. The completed scientific snapshot
+remains byte-identical. Verification: 212 full-suite tests passed, followed by 20 final
+dashboard checks after the missing-value presentation change; 16 actual desktop/tablet
+Chrome renders, keyboard checks and real
+worker completion/cancellation are recorded locally and in the interface review.
+Mixed columns containing missing values display em dashes as text; filter to adapted
+methods for numeric delta sorting. Scientific exports retain their numeric values.
 
 ## Prepare the declared datasets
 
