@@ -71,7 +71,7 @@ def test_fitting_rejects_missing_prerequisites_without_outputs(tmp_path, monkeyp
     assert not list(tmp_path.iterdir())
 
 
-def test_unimplemented_adaptation_job_is_rejected_before_any_write(tmp_path, monkeypatch):
+def test_all_method_job_requires_a_real_runtime_before_any_write(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert main(["run", "--config", str(ROOT / "configs/study.yaml")]) == 2
     assert not list(tmp_path.iterdir())

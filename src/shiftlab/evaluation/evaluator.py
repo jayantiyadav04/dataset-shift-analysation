@@ -16,6 +16,7 @@ from shiftlab.data.splits import read_role_features, validate_split
 from shiftlab.data.storage import DataError, read_json, verify_files, verify_seal, write_json
 from shiftlab.data.training import FeatureBatch
 from shiftlab.evaluation.metrics import classification_metrics
+from shiftlab.experiments.alignment import load_coral_state
 from shiftlab.experiments.provenance import content_hash
 from shiftlab.experiments.storage import LocalArtifactStore
 
@@ -92,6 +93,16 @@ def evaluate_frozen_run(
         estimator = store.load_joblib("runs", run_id, "fitted_model.joblib")
         if preprocessor.preprocessing_hash_ != key["preprocessing_hash"]:
             raise DataError("Saved preprocessing identity differs from fitted run")
+        if key["method"] == "coral":
+            # Validate the saved source transform, but never apply it to target rows.
+            state = load_coral_state(
+                store.directory("runs", run_id) / "adaptation_state.npz",
+                preprocessing_hash=key["preprocessing_hash"],
+                source_ids=tuple(split["source_ids"]),
+                target_adapt_ids=tuple(split["target_adapt_ids"]),
+            )
+            if len(state.source_mean) != preprocessor.actual_components_:
+                raise DataError("Saved CORAL feature dimension differs from preprocessing")
         started = perf_counter()
         with threadpool_limits(limits=1):
             prediction = estimator.predict(preprocessor.transform(batch))

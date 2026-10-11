@@ -16,6 +16,7 @@ from shiftlab.data.parsers import CLASS_MAPS
 from shiftlab.data.storage import DataError, read_json, write_json
 from shiftlab.data.training import RawTrainingView, load_training
 from shiftlab.environment import environment_report
+from shiftlab.experiments.alignment import load_coral_state, prepare_coral
 from shiftlab.experiments.config import StudyConfig
 from shiftlab.experiments.provenance import (
     RunKey,
@@ -61,12 +62,16 @@ def _save_fit(
     environment: dict,
     study_id: str,
     importance: dict | None,
+    coral: dict | None,
 ) -> dict[str, Any]:
     source_id = source["identity"]
     source_directory = store.directory("source_cache", source_id)
     X_source = np.load(source_directory / "source_features.npy", allow_pickle=False)
     weights, weight_diagnostics = None, None
     adaptation_seconds = 0.0
+    coral_diagnostics, aligned_hash = None, None
+    if importance is not None and coral is not None:
+        raise DataError("Primary methods cannot combine weighting and CORAL")
     if importance is not None:
         directory = store.directory("importance_cache", importance["identity"])
         with np.load(directory / "adaptation_state.npz", allow_pickle=False) as arrays:
@@ -95,12 +100,46 @@ def _save_fit(
                 "shared_across_models": True,
             },
         )
+    if coral is not None:
+        directory = store.directory("coral_cache", coral["identity"])
+        state = load_coral_state(
+            directory / "adaptation_state.npz",
+            preprocessing_hash=source["preprocessing_hash"],
+            source_ids=view.source.ids,
+            target_adapt_ids=view.target_adapt.ids,
+        )
+        aligned = np.load(directory / "aligned_source_features.npy", allow_pickle=False)
+        aligned_hash = content_hash(aligned.tolist())
+        if (
+            aligned.shape != X_source.shape
+            or not np.isfinite(aligned).all()
+            or aligned_hash != coral["aligned_source_hash"]
+            or len(state.source_mean) != X_source.shape[1]
+        ):
+            raise DataError("Cached CORAL features violate their source/schema contract")
+        X_source = aligned
+        coral_diagnostics = state.diagnostics
+        adaptation_seconds = coral["adaptation_fit_seconds"]
+        shutil.copyfile(directory / "adaptation_state.npz", stage / "adaptation_state.npz")
+        write_json(
+            stage / "coral_reference.json",
+            {
+                "identity": coral["identity"],
+                "manifest_hash": coral["manifest_hash"],
+                "preprocessing_hash": coral["preprocessing_hash"],
+                "aligned_source_hash": aligned_hash,
+                "shared_across_models": True,
+                "target_prediction_coordinates": "source preprocessing only; no source alignment",
+            },
+        )
     estimator = estimator_factory(model, parameters, seed)
     started = perf_counter()
     messages = fit_estimator(estimator, X_source, view.y_source, sample_weight=weights)
     classifier_seconds = perf_counter() - started
     if importance is not None:
         messages = importance["warnings"] + messages
+    if coral is not None:
+        messages = coral["warnings"] + messages
     joblib.dump(estimator, stage / "fitted_model.joblib")
     shutil.copyfile(source_directory / "preprocessing.joblib", stage / "preprocessing.joblib")
     timings = {
@@ -133,6 +172,16 @@ def _save_fit(
                 ],
             }
         )
+    if coral is not None:
+        timings.update(
+            {
+                "coral_cache_id": coral["identity"],
+                "target_adapt_transform_seconds": coral["target_adapt_transform_seconds"],
+                "coral_and_source_alignment_fit_seconds": coral[
+                    "coral_and_source_alignment_fit_seconds"
+                ],
+            }
+        )
     write_json(stage / "config.json", configuration)
     write_json(stage / "environment.json", environment)
     write_json(
@@ -159,6 +208,8 @@ def _save_fit(
             "sample_weight_passed": weights is not None,
             "sample_weight_hash": content_hash(weights.tolist()) if weights is not None else None,
             "importance_weighting": weight_diagnostics,
+            "coral": coral_diagnostics,
+            "source_fit_features_hash": aligned_hash,
             "warnings": messages,
         },
     )
@@ -188,8 +239,6 @@ def train_methods(
     methods = ("source_only",) if baseline_only else config.methods
     if baseline_only and "source_only" not in config.methods:
         raise DataError("Baseline training needs source_only in the declared configuration")
-    if set(methods) - {"source_only", "importance_weighting"}:
-        raise DataError("CORAL fitting is not implemented yet; use an implemented method config")
     if "source_only" not in methods and config.include_majority_baseline:
         raise DataError("Majority requires source_only in a method job configuration")
     identity = runtime_identity(root)
@@ -217,11 +266,15 @@ def train_methods(
                 progress({"event": "source_selection", "task": task, "seed": seed})
             source, cache_hit = select_source(store, view, config, seed, identity)
             for method in methods:
-                importance = None
+                importance, coral = None, None
                 if method == "importance_weighting":
                     if progress:
                         progress({"event": "importance_crossfit", "task": task, "seed": seed})
                     importance, _ = prepare_importance(store, view, config, seed, source, identity)
+                if method == "coral":
+                    if progress:
+                        progress({"event": "coral_alignment", "task": task, "seed": seed})
+                    coral, _ = prepare_coral(store, view, config, seed, source, identity)
                 families = list(config.models)
                 if method == "source_only" and config.include_majority_baseline:
                     families.append("majority")
@@ -238,6 +291,8 @@ def train_methods(
                         adaptation_parameter_hash=content_hash(
                             config.importance_weighting.model_dump(mode="json")
                             if importance
+                            else config.coral.model_dump(mode="json")
+                            if coral
                             else {}
                         ),
                         seed=seed,
@@ -258,6 +313,7 @@ def train_methods(
                         environment=environment,
                         study_id=study_id,
                         importance=importance,
+                        coral=coral,
                     )
                     record, resumed = store.create(
                         "runs", asdict(key), produce, resume=config.execution.resume
@@ -274,6 +330,7 @@ def train_methods(
                             "source_cache_reused": cache_hit,
                             "source_cv_id": source["identity"],
                             "importance_cache_id": importance["identity"] if importance else None,
+                            "coral_cache_id": coral["identity"] if coral else None,
                         }
                     )
                     if progress:

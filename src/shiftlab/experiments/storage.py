@@ -43,6 +43,7 @@ class LocalArtifactStore:
             "runs",
             "source_cache",
             "importance_cache",
+            "coral_cache",
             "evaluations",
         } or not re.fullmatch(r"[0-9a-f]{64}", identity):
             raise DataError("Unknown record namespace or invalid content identity")

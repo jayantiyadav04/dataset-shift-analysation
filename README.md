@@ -4,8 +4,8 @@ A local research project evaluating classical classifiers under distribution shi
 The package includes validated configuration, official data acquisition and parsing,
 immutable split manifests, source-only numerical/text preprocessing and classical
 baseline fitting with fold-safe source selection and domain-classifier importance
-weighting. CORAL, full-study evaluation and the six-page dashboard remain to be
-implemented. No target study results exist yet.
+weighting and centred regularised CORAL alignment. Full-study evaluation and the
+six-page dashboard remain to be implemented. No target study results exist yet.
 
 ## Frozen objective
 
@@ -33,7 +33,7 @@ py -3.12 -m venv .venv
 
 The package works independently of Streamlit. Configuration, environment, data
 and split commands are implemented. `train-source` fits source baselines; `run`
-accepts source-only and importance-weighting configurations. Study and export commands return
+accepts source-only, importance-weighting and CORAL configurations. Study and export commands return
 a nonzero exit code until their implementation is complete.
 
 ## Prepare the declared datasets
@@ -163,6 +163,39 @@ Effective sample size (ESS) measures concentration of the weights, not predictio
 quality. ESS below 10% of source count warns but retains the fit. No target task
 labels, pseudo-labels or target score tuning are used. Lightweight real fitting
 diagnostics are in `reports/importance_weighting/`; raw weights/models stay local.
+
+## Fit CORAL models
+
+```powershell
+.\.venv\Scripts\shiftlab.exe run --config configs/coral.yaml
+```
+
+This development job compares all three implemented methods and a majority
+baseline on the three diagnostic transfers at seed 17: 30 fitted records.
+It keeps target evaluation features and labels closed.
+
+In the common source-preprocessed feature space, CORAL estimates source and
+target adaptation means and unbiased covariances. It adds ridge 0.001 to each
+covariance, uses symmetric eigenvalue roots with floor 1e-8, and computes
+`A = Cs^(-1/2) @ Ct^(1/2)`. For row-vector observations, source fitting uses
+`(X_source - source_mean) @ A + target_mean`. This is a centred CORAL variant
+with target mean restoration. The product A is generally not symmetric.
+Target prediction uses the saved source preprocessing and the fitted classifier;
+the source alignment matrix is never applied to target rows.
+
+`artifacts/coral_cache/` preserves A, means, original covariances, ridge, floor,
+preprocessing identifier, ordered source/adaptation IDs, aligned source features,
+covariance mismatch and numerical diagnostics. All three classifiers share the
+same transform and source-selected parameters. Each CORAL run copies its numeric
+`adaptation_state.npz` and records a `coral_reference.json`. Adaptation timing
+includes target adaptation preprocessing, transform estimation and source alignment;
+cache hits retain the originating component timings.
+
+Mismatch uses the Frobenius difference from the original target adaptation
+covariance, divided by its norm with a 1e-12 denominator floor. Regularisation
+can leave residual mismatch; reduced mismatch does not establish better
+prediction quality or identical distributions. The lightweight real-fit audit
+is in `reports/coral_alignment/`; transforms and models remain local.
 
 ## Study boundaries
 
