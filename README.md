@@ -4,8 +4,10 @@ A local research project evaluating classical classifiers under distribution shi
 The package includes validated configuration, official data acquisition and parsing,
 immutable split manifests, source-only numerical/text preprocessing and classical
 baseline fitting with fold-safe source selection and domain-classifier importance
-weighting and centred regularised CORAL alignment. Full-study evaluation and the
-six-page dashboard remain to be implemented. No target study results exist yet.
+weighting and centred regularised CORAL alignment. The frozen study runner supports
+resource benchmarks, checkpoints, held-out evaluation and paired grouped analysis.
+The six-page dashboard remains to be implemented. Completed counts and findings
+require saved study evidence.
 
 ## Frozen objective
 
@@ -33,8 +35,9 @@ py -3.12 -m venv .venv
 
 The package works independently of Streamlit. Configuration, environment, data
 and split commands are implemented. `train-source` fits source baselines; `run`
-accepts source-only, importance-weighting and CORAL configurations. Study and export commands return
-a nonzero exit code until their implementation is complete.
+accepts source-only, importance-weighting and CORAL configurations. Study commands
+benchmark, fit, evaluate, summarize, inspect progress and recover interrupted work.
+The separate dashboard export command returns a nonzero exit code until implemented.
 
 ## Prepare the declared datasets
 
@@ -197,13 +200,81 @@ can leave residual mismatch; reduced mismatch does not establish better
 prediction quality or identical distributions. The lightweight real-fit audit
 is in `reports/coral_alignment/`; transforms and models remain local.
 
-## Study boundaries
+## Benchmark and execute the frozen study
+
+The CPU runner keeps the declared preprocessing, grids, five seeds and one-thread
+policy. Benchmark each diagnostic transfer in a fresh Python process before
+starting the complete study:
+
+```powershell
+.\.venv\Scripts\python.exe tools/run_frozen_study.py benchmark --task gas_b01_b10
+.\.venv\Scripts\python.exe tools/run_frozen_study.py benchmark --task har_official_group_transfer
+.\.venv\Scripts\python.exe tools/run_frozen_study.py benchmark --task amazon_books_electronics
+.\.venv\Scripts\shiftlab.exe study estimate --study-id <saved-study-id>
+.\.venv\Scripts\python.exe tools/run_frozen_study.py execute
+```
+
+Each benchmark performs the complete source CV search, all three classifiers and
+methods, and majority at seed 17. It saves measured preprocessing, tuning,
+adaptation and training times, wall time, and the OS process-lifetime peak working
+set. The GPU is unused. The runtime projection counts 30 shared source searches,
+1,100 primary runs and 180 additional sensitivity runs. Its allowance for final
+prediction, bootstrap analysis and variation is explicitly an estimate.
+
+`artifacts/studies/<study-id>/study_lock.json` freezes configuration, source bytes,
+dependency lock, archives, splits and the expected matrix before fitting. Final
+evaluation requires all 1,280 saved fits and a separate completed-fit lock. The
+execution tool blocks reads of held-out/private data during fitting, then invokes
+the evaluator and saved-prediction analysis explicitly. Scientific results do not
+depend on Streamlit.
+
+Completed fits, source-CV candidates and evaluations are checkpoints. Repeat the
+execution command to resume; verified artifacts retain their original timings
+and remain immutable. `checkpoint.json`, `events.jsonl`, `completed_runs.csv` and
+`missing_runs.csv` distinguish expected, fitted and evaluated counts and preserve
+failed attempts. Use Ctrl+C for graceful cancellation. After a hard interruption,
+inspect `writer.lock`, then use `shiftlab study recover --study-id <id>`: recovery
+requires a confirmed dead owner and preserves abandoned attempts. It refuses a
+live or uninspectable process. Source/dependency changes require a new audited
+study rather than silently resuming an incompatible one.
+
+Separate commands are available for `study run --config configs/study.yaml --resume`,
+`study evaluate --study-id <id>`, `study summarize --study-id <id>` and
+`study status --study-id <id>`. Summaries independently recompute scores from
+predictions, check pairing, average bootstrap deltas over the five fitted seeds,
+and resample whole evaluation groups 1,000 times with seed 2026. The primary
+settings remain fixed. Tables, figures, negative changes and limitations are in
+the immutable `analysis/` directory; its export manifest links exact run IDs and
+input/output hashes. Seeds sharing one test set are not independent datasets.
+
+## Research boundaries
+
+The completed frozen study is saved in [reports/study](reports/study/README.md):
+1,100 primary and 180 sensitivity evaluations across all 22 transfers and five
+seeds, with 30 shared source searches. All 1,280 metric records independently
+recompute from saved predictions. The full regression suite passed 193 tests;
+the resume audit preserved hashes, sizes and timestamps of 28,729 immutable files.
+
+Across 132 primary adaptation comparisons, mean macro F1 increased in 40 and
+decreased in 92; 27 unadjusted group-bootstrap intervals included zero. These
+dependent comparisons describe observed transfer, not independent statistical
+trials. Saved tables retain negative changes, low-ESS warnings and all declared
+sensitivity settings, with exact run IDs and checksums.
+
+Fresh gas, HAR and Amazon benchmarks measured peak process working sets of
+284, 687 and 517 MiB. The benchmark-based complete-study planning range was
+2.98–3.97 hours from scratch, including a stated allowance for unmeasured costs.
+It is a projection, not observed elapsed completion time. Two Windows progress-file
+I/O interruptions were preserved and resumed; bounded retries apply only to four
+mutable progress files. Classifier fitting failures: zero. The study engine,
+objective, splits and primary settings stayed frozen. Publication figure layout
+revisions trace to unchanged saved numerical inputs and preserve original exports.
 
 Gas Sensor Array Drift, HAR Using Smartphones and the original four-domain Amazon
 sentiment corpus are three independent datasets. LR, LinearSVC and RF are compared
 under source-only, importance weighting and CORAL, with a source-majority baseline.
 The full configuration declares 22 transfers and five seeds (17, 29, 43, 71, 101).
-All run counts are planned until supported by saved evidence.
+Other configuration subsets remain planned until supported by their own saved evidence.
 
 Source labels and target adaptation features are permitted for fitting. Target
 evaluation features and labels remain outside the training contract. Source
@@ -214,7 +285,7 @@ are shared across paired methods. No method is assumed to improve performance.
 
 `src/shiftlab/` holds the shared engine; `app/` holds the interface; `tests/` holds
 offline acceptance checks; `configs/` holds study contracts; `reports/` holds the
-preserved proposal and reading plan. The synthetic fixture is development data and
+preserved proposal, reading plan and aggregate completed-study evidence. The synthetic fixture is development data and
 is never written to `artifacts/` as a real study.
 
 At the user's request, `docs/`, `prompts/`, `templates/`, `submission/`,

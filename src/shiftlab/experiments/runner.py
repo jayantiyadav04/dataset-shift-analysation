@@ -234,14 +234,57 @@ def train_methods(
     data_root: Path,
     progress: Callable[[dict], None] | None = None,
     baseline_only: bool = False,
+    tasks: tuple[str, ...] | None = None,
+    seeds: tuple[int, ...] | None = None,
+    sensitivity: tuple[str, float] | None = None,
+    frozen_identity: dict[str, str] | None = None,
+    frozen_study_id: str | None = None,
 ) -> dict[str, Any]:
     """Fit implemented methods; unsupported settings fail before creating artifacts."""
+    configuration = config.model_dump(mode="json")
+    config_hash = content_hash(configuration)
+    selected_tasks = config.selected_tasks() if tasks is None else tasks
+    selected_seeds = config.seeds if seeds is None else seeds
+    if not set(selected_tasks) <= set(config.selected_tasks()) or not set(selected_seeds) <= set(
+        config.seeds
+    ):
+        raise DataError("Job selection must belong to the declared study")
     methods = ("source_only",) if baseline_only else config.methods
+    include_majority = config.include_majority_baseline
+    if sensitivity is not None:
+        method, value = sensitivity
+        if baseline_only or not set(selected_tasks) <= set(config.ablations.tasks):
+            raise DataError("Sensitivity is restricted to predeclared diagnostic tasks")
+        if method == "importance_weighting" and value in (5.0, 20.0):
+            config = config.model_copy(
+                update={
+                    "importance_weighting": config.importance_weighting.model_copy(
+                        update={"weight_clip_upper": value}
+                    )
+                }
+            )
+        elif method == "coral" and value in (0.0001, 0.01):
+            config = config.model_copy(
+                update={"coral": config.coral.model_copy(update={"ridge": value})}
+            )
+        else:
+            raise DataError("Unknown nonprimary sensitivity setting")
+        methods, include_majority = (method,), False
+        configuration = {
+            "primary_configuration": configuration,
+            "sensitivity": {"method": method, "value": value},
+            "effective_configuration": config.model_dump(mode="json"),
+        }
     if baseline_only and "source_only" not in config.methods:
         raise DataError("Baseline training needs source_only in the declared configuration")
-    if "source_only" not in methods and config.include_majority_baseline:
+    if "source_only" not in methods and include_majority:
         raise DataError("Majority requires source_only in a method job configuration")
     identity = runtime_identity(root)
+    if frozen_identity is not None:
+        for field in ("code_snapshot_hash", "dependency_lock_hash"):
+            if frozen_identity.get(field) != identity[field]:
+                raise DataError("Frozen study source or dependency bytes have changed")
+        identity = frozen_identity
     environment = environment_report(root)
     environment.update(
         {
@@ -251,17 +294,15 @@ def train_methods(
         }
     )
     store = LocalArtifactStore(root / config.execution.output_root)
-    configuration = config.model_dump(mode="json")
-    config_hash = content_hash(configuration)
-    study_id = content_hash({"config_hash": config_hash, **identity})
+    study_id = frozen_study_id or content_hash({"config_hash": config_hash, **identity})
     results = []
-    for task in config.selected_tasks():
+    for task in selected_tasks:
         directory = data_root / "splits" / config.protocol_version / task
         split = read_json(directory / "manifest.json")
         if split["task_id"] != task or split["protocol_version"] != config.protocol_version:
             raise DataError("Requested task or protocol differs from frozen split")
         view = load_training(directory)
-        for seed in config.seeds:
+        for seed in selected_seeds:
             if progress:
                 progress({"event": "source_selection", "task": task, "seed": seed})
             source, cache_hit = select_source(store, view, config, seed, identity)
@@ -276,7 +317,7 @@ def train_methods(
                         progress({"event": "coral_alignment", "task": task, "seed": seed})
                     coral, _ = prepare_coral(store, view, config, seed, source, identity)
                 families = list(config.models)
-                if method == "source_only" and config.include_majority_baseline:
+                if method == "source_only" and include_majority:
                     families.append("majority")
                 for model in families:
                     parameters = {} if model == "majority" else source["selected_parameters"][model]
@@ -325,6 +366,9 @@ def train_methods(
                             "model": str(model),
                             "method": str(method),
                             "seed": seed,
+                            "setting": "primary"
+                            if sensitivity is None
+                            else f"{sensitivity[0]}:{sensitivity[1]:g}",
                             "status": record["status"],
                             "resumed": resumed,
                             "source_cache_reused": cache_hit,
@@ -336,9 +380,9 @@ def train_methods(
                     if progress:
                         progress({"event": "fit_saved", **results[-1]})
     expected = (
-        len(config.selected_tasks())
-        * len(config.seeds)
-        * (len(config.models) * len(methods) + int(config.include_majority_baseline))
+        len(selected_tasks)
+        * len(selected_seeds)
+        * (len(config.models) * len(methods) + int(include_majority))
     )
     return {
         "status": "baselines_fitted" if baseline_only else "methods_fitted",

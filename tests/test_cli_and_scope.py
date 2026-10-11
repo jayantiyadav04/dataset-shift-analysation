@@ -35,9 +35,6 @@ def test_cli_validates_without_running_a_study(capsys):
 @pytest.mark.parametrize(
     "arguments",
     [
-        ["study", "run", "--config", "configs/study.yaml", "--resume"],
-        ["study", "evaluate", "--study-id", "no-study"],
-        ["study", "summarize", "--study-id", "no-study"],
         ["export", "--study-id", "no-study", "--out", "reports/generated"],
     ],
 )
@@ -47,6 +44,19 @@ def test_planned_commands_fail_explicitly_without_writing(arguments, tmp_path, m
     assert main(arguments) == NOT_IMPLEMENTED
     assert "Not implemented" in capsys.readouterr().err
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("action", ["evaluate", "summarize", "estimate", "status", "recover"])
+def test_missing_study_fails_before_any_output(action, tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["study", action, "--study-id", "no-study"]) == 2
+    assert not list(tmp_path.iterdir())
+
+
+def test_study_requires_real_runtime_and_splits(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert main(["study", "run", "--config", str(ROOT / "configs/study.yaml"), "--resume"]) == 2
+    assert not list(tmp_path.iterdir())
 
 
 def test_scientific_engine_imports_without_interface():

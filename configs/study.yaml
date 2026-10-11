@@ -1,4 +1,4 @@
-# Proposed configuration contract to implement in Phase 1. Not a completed study.
+# Frozen primary configuration. Completion requires saved study evidence.
 schema_version: 1
 protocol_version: '1.0'
 study_name: main_v1

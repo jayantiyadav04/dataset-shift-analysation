@@ -5,6 +5,7 @@ who can rewrite the entire workspace. Never import receipts or pickle files from
 uploads or external artifact bundles.
 """
 
+import os
 import re
 import uuid
 from collections.abc import Callable
@@ -25,7 +26,7 @@ from shiftlab.data.storage import (
     verify_seal,
     write_json,
 )
-from shiftlab.experiments.provenance import content_hash, file_sha256
+from shiftlab.experiments.provenance import canonical_json, content_hash, file_sha256
 
 
 def now() -> str:
@@ -101,7 +102,16 @@ class LocalArtifactStore:
         started = now()
         try:
             with stream:
-                stream.write(started)
+                stream.write(
+                    canonical_json(
+                        {
+                            "pid": os.getpid(),
+                            "started_at": started,
+                            "kind": kind,
+                            "identity": identity,
+                        }
+                    )
+                )
             if destination.exists():
                 if not resume:
                     raise DataError("Immutable record already exists; enable resume to reuse it")

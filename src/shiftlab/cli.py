@@ -138,12 +138,16 @@ def build_parser() -> argparse.ArgumentParser:
     study_commands = study.add_subparsers(dest="action", required=True)
     run = study_commands.add_parser("run")
     _config_argument(run)
+    _data_arguments(run, config=False)
     run.add_argument("--resume", action="store_true")
-    _planned(run, 6)
-    for action in ("evaluate", "summarize"):
+    bench = study_commands.add_parser("benchmark")
+    _config_argument(bench)
+    _data_arguments(bench, config=False)
+    bench.add_argument("--task", required=True)
+    for action in ("evaluate", "summarize", "estimate", "recover", "status"):
         child = study_commands.add_parser(action)
         child.add_argument("--study-id", required=True)
-        _planned(child, 6)
+        child.add_argument("--output-root", default="artifacts")
     export = commands.add_parser("export", help="Export saved evidence (Phase 7)")
     export.add_argument("--study-id", required=True)
     export.add_argument("--out", type=Path, required=True)
@@ -177,6 +181,65 @@ def main(argv: list[str] | None = None) -> int:
             config = load_config(args.config)
             operation = train_baselines if args.command == "train-source" else train_methods
             result = operation(config, root=Path.cwd(), data_root=args.data_root)
+        elif args.command == "study":
+            from shiftlab.experiments.provenance import canonical_json
+            from shiftlab.experiments.study import (
+                benchmark,
+                estimate_runtime,
+                evaluate_study,
+                fit_study,
+                open_study,
+            )
+
+            def progress(event):
+                print(canonical_json(event), file=sys.stderr, flush=True)
+
+            if args.action in {"run", "benchmark"}:
+                config = load_config(args.config)
+                if args.action == "benchmark":
+                    result = benchmark(config, Path.cwd(), args.data_root, args.task, progress)
+                else:
+                    result = fit_study(config, Path.cwd(), args.data_root, progress)
+                    if result["status"] != "frozen_fits_complete":
+                        print(json.dumps(result, indent=2), flush=True)
+                        return 3
+            elif args.action == "evaluate":
+                result = evaluate_study(Path.cwd(), args.study_id, progress, args.output_root)
+            elif args.action == "summarize":
+                from shiftlab.evaluation.analysis import summarize_study
+
+                result = summarize_study(Path.cwd(), args.study_id, progress, args.output_root)
+            else:
+                from shiftlab.data.storage import read_json
+                from shiftlab.experiments.checkpoints import recover_owner, recover_records
+                from shiftlab.experiments.storage import LocalArtifactStore
+
+                directory, lock = open_study(Path.cwd(), args.study_id, args.output_root)
+                if args.action == "estimate":
+                    result = estimate_runtime(directory)
+                elif args.action == "status":
+                    result = (
+                        read_json(directory / "checkpoint.json")
+                        if (directory / "checkpoint.json").exists()
+                        else {
+                            "status": "frozen_planned",
+                            "study_id": args.study_id,
+                            "expected_primary": 1100,
+                            "expected_sensitivity": 180,
+                            "evaluated_records": 0,
+                        }
+                    )
+                else:
+                    result = {
+                        "study_writer": recover_owner(directory)
+                        if (directory / "writer.lock").exists()
+                        else "no_writer_lock",
+                        "records": recover_records(
+                            LocalArtifactStore(
+                                Path.cwd() / lock["configuration"]["execution"]["output_root"]
+                            )
+                        ),
+                    }
         else:
             if hasattr(args, "config"):
                 load_config(args.config)
