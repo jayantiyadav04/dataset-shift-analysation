@@ -345,4 +345,17 @@ scikit-learn 1.9.1 and Streamlit 1.65.0. All other exact versions are in the loc
 The checks run offline after installation. The supplied pack validator checks
 only project Markdown, so it ignores installed third-party documentation.
 
-Pushes and public deployment require a separate user instruction.
+## Final research materials
+
+The [report and submission index](reports/final/README.md) links the report and
+paper PDFs, separate 150-word results abstract, completed literature matrix, three
+data cards, slide content, demonstration script and contribution disclosure.
+The [fresh-environment reproduction](reports/reproduction/README.md) rebuilt 50
+fits for one real gas transfer and matched all ordered predictions, metrics and
+selected parameters exactly. It reused verified local data and does not claim a
+second full-study or cross-platform reproduction.
+
+The final materials distinguish technical checks from student review and viva
+rehearsal. Consult their delivery status before submission. The historical
+documentation-pack MANIFEST.sha256 stays unchanged; new archives carry their own
+per-file SHA-256 inventories. Publication is performed only when authorized.
